@@ -170,7 +170,10 @@
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-        const GEMINI_API_KEY = "pk_test_d3a54d5b-163e-4340-8f9f-7f72205565f1"; // This is a placeholder for Vercel's environment variable.
+        const GEMINI_API_KEY = typeof window.env !== 'undefined' ? window.env.GEMINI_API_KEY : "";
+        if (!GEMINI_API_KEY) {
+            statusMessage.textContent = 'API key not found. Please set the GEMINI_API_KEY environment variable in Vercel.';
+        }
 
         /**
          * Converts a File object to a Base64 string.
@@ -239,6 +242,11 @@
          * @returns {Promise<string>} A promise that resolves with the analysis description.
          */
         async function analyzeFileWithGemini(file) {
+            if (!GEMINI_API_KEY) {
+                showModal('API key is not set. Cannot perform analysis.', 'error');
+                return 'Analysis failed.';
+            }
+
             let payload;
             let promptText;
             const apiKey = GEMINI_API_KEY; 
@@ -329,6 +337,11 @@
          * @returns {Promise<string>} A promise that resolves with the suggested category.
          */
         async function categorizeFileWithGemini(description) {
+            if (!GEMINI_API_KEY) {
+                showModal('API key is not set. Cannot perform analysis.', 'error');
+                return 'Uncategorized';
+            }
+
             showModal('Categorizing file with Gemini...');
             const promptText = `Based on the following description, provide a single, concise category for the file. Examples of categories include: "Personal Photos", "Work Documents", "Creative Projects", "Software Development", "Personal Videos". Do not provide any extra text, only the category name.\n\nDescription: ${description}`;
             const apiKey = GEMINI_API_KEY;
@@ -375,6 +388,11 @@
          * @returns {Promise<string>} A promise that resolves with the summary.
          */
         async function summarizeDayWithGemini(dayDescription) {
+            if (!GEMINI_API_KEY) {
+                showModal('API key is not set. Cannot perform analysis.', 'error');
+                return 'No summary available.';
+            }
+
             showModal('Summarizing day\'s work with Gemini...');
             const promptText = `Provide a concise, single-paragraph summary of the following file descriptions. The summary should capture the main themes or activities of the day. Avoid just listing the files.\n\nFile Descriptions:\n${dayDescription}`;
             const apiKey = GEMINI_API_KEY;

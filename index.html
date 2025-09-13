@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Organizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117;
+            color: #c9d1d9;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        .card {
+            background-color: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        }
+        .button {
+            background-color: #21262d;
+            border: 1px solid #30363d;
+            color: #58a6ff;
+            font-weight: 600;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+        .button:hover {
+            background-color: #30363d;
+            border-color: #8b949e;
+        }
+        .timeline-item {
+            position: relative;
+            padding-left: 2rem;
+            margin-bottom: 1.5rem;
+        }
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0.5rem;
+            width: 2px;
+            height: 100%;
+            background-color: #30363d;
+        }
+        .timeline-item::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 1rem;
+            height: 1rem;
+            background-color: #21262d;
+            border: 2px solid #58a6ff;
+            border-radius: 50%;
+        }
+        .timeline-date {
+            font-weight: 700;
+            color: #c9d1d9;
+            margin-bottom: 1rem;
+            margin-left: 1rem;
+            position: sticky;
+            top: 0;
+            background-color: #0d1117;
+            padding: 0.5rem 0;
+            z-index: 10;
+        }
+        .file-entry {
+            background-color: #161b22;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 0.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #58a6ff;
+            animation: spin 1s ease infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .filter-button {
+            background-color: #21262d;
+            color: #c9d1d9;
+            font-weight: 500;
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .filter-button:hover {
+            background-color: #30363d;
+        }
+        .filter-button.active {
+            background-color: #58a6ff;
+            color: #0d1117;
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200">
+
+<div class="container py-8">
+    <div class="card mb-8">
+        <h1 class="text-3xl font-bold mb-2 text-center text-blue-400">Digital Archive Analyst</h1>
+        <p class="text-center text-gray-400 mb-6">Analyze and organize your files by timestamp and type.</p>
+
+        <div class="flex flex-col items-center justify-center space-y-4">
+            <label for="directory-input" class="button cursor-pointer">
+                Select a Folder to Analyze
+            </label>
+            <!-- The webkitdirectory attribute is non-standard but widely supported to allow directory selection -->
+            <input type="file" id="directory-input" webkitdirectory="" multiple="" class="hidden">
+        </div>
+
+        <div id="status-message" class="mt-4 text-center text-gray-500">
+            Select a directory to begin.
+        </div>
+    </div>
+    
+    <div id="category-filter-container" class="card mb-6 hidden">
+        <h2 class="text-xl font-bold mb-4 text-blue-400">Filter by Category</h2>
+        <div id="category-buttons" class="flex flex-wrap gap-2">
+            <!-- Filter buttons will be rendered here -->
+        </div>
+    </div>
+
+    <div id="results-container" class="space-y-6">
+        <!-- Results will be rendered here -->
+    </div>
+
+    <div id="modal" class="fixed inset-0 bg-black bg-opacity-75 hidden flex items-center justify-center z-50">
+        <div class="card w-full max-w-lg p-6">
+            <div id="modal-content" class="text-center">
+                <!-- Modal content will be injected here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const directoryInput = document.getElementById('directory-input');
+        const resultsContainer = document.getElementById('results-container');
+        const statusMessage = document.getElementById('status-message');
+        const modal = document.getElementById('modal');
+        const modalContent = document.getElementById('modal-content');
+        const categoryFilterContainer = document.getElementById('category-filter-container');
+        const categoryButtons = document.getElementById('category-buttons');
+        
+        let fileData = [];
+
+        // Global variables for Firebase, provided by the canvas environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        /**
+         * Converts a File object to a Base64 string.
+         * @param {File} file The file to convert.
+         * @returns {Promise<string>} A promise that resolves with the Base64 string.
+         */
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = error => reject(error);
+                reader.readAsDataURL(file);
+            });
+        }
+        
+        /**
+         * Converts a File object to a text string.
+         * @param {File} file The file to convert.
+         * @returns {Promise<string>} A promise that resolves with the text content.
+         */
+        function fileToText(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = error => reject(error);
+                reader.readAsText(file);
+            });
+        }
+
+        /**
+         * Displays a temporary modal with a message.
+         * @param {string} message The message to display.
+         * @param {string} type The type of message (e.g., 'loading', 'success', 'error').
+         */
+        function showModal(message, type = 'loading') {
+            modal.classList.remove('hidden');
+            let content;
+            if (type === 'loading') {
+                content = `
+                    <div class="flex flex-col items-center space-y-4">
+                        <div class="spinner"></div>
+                        <p class="text-lg font-semibold">${message}</p>
+                    </div>
+                `;
+            } else {
+                content = `
+                    <div class="flex flex-col items-center space-y-4">
+                        <p class="text-lg font-semibold">${message}</p>
+                        <button class="button mt-4" onclick="document.getElementById('modal').classList.add('hidden');">Close</button>
+                    </div>
+                `;
+            }
+            modalContent.innerHTML = content;
+        }
+
+        /**
+         * Hides the modal.
+         */
+        function hideModal() {
+            modal.classList.add('hidden');
+        }
+
+        /**
+         * Uses the Gemini API to analyze a file. The method of analysis depends on the file type.
+         * @param {File} file The file to analyze.
+         * @returns {Promise<string>} A promise that resolves with the analysis description.
+         */
+        async function analyzeFileWithGemini(file) {
+            let payload;
+            let promptText;
+            const apiKey = ""; // Leave as empty string for canvas to handle
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+            if (file.type.startsWith('image/')) {
+                // For images, we can perform a direct visual analysis
+                showModal('Analyzing image with Gemini...');
+                const base64Data = await fileToBase64(file);
+                promptText = "Describe the contents of this image. What is the subject, style, and mood?";
+                payload = {
+                    contents: [
+                        {
+                            role: "user",
+                            parts: [
+                                { text: promptText },
+                                {
+                                    inlineData: {
+                                        mimeType: file.type,
+                                        data: base64Data
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                };
+            } else if (file.type.startsWith('text/') || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
+                // For text files, we can read the content and analyze it.
+                showModal('Analyzing document content with Gemini...');
+                const textContent = await fileToText(file);
+                // Limit the content to a reasonable size to avoid API errors
+                const contentSnippet = textContent.slice(0, 5000); 
+                promptText = `Summarize and categorize the following document content:\n\n---\n\n${contentSnippet}\n\n---\n\nIf possible, also guess the purpose of this file based on its title and content.`;
+                payload = {
+                    contents: [
+                        {
+                            role: "user",
+                            parts: [
+                                { text: promptText }
+                            ]
+                        }
+                    ]
+                };
+            } else {
+                // For other file types, we'll use the filename as a proxy for analysis
+                showModal('Analyzing filename with Gemini...');
+                promptText = `Given the filename "${file.name}" and its type "${file.type}", what is the likely subject, content, or purpose of this file? Provide a concise, one-sentence description.`;
+                payload = {
+                    contents: [
+                        {
+                            role: "user",
+                            parts: [
+                                { text: promptText }
+                            ]
+                        }
+                    ]
+                };
+            }
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error.message || 'API request failed.');
+                }
+                
+                const result = await response.json();
+                const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+                hideModal();
+                return text || 'No description found.';
+
+            } catch (error) {
+                hideModal();
+                showModal('Error analyzing file. ' + error.message, 'error');
+                console.error("Error analyzing file:", error);
+                return 'Analysis failed.';
+            }
+        }
+
+        /**
+         * Uses Gemini API to categorize a file based on its description.
+         * @param {string} description The description of the file.
+         * @returns {Promise<string>} A promise that resolves with the suggested category.
+         */
+        async function categorizeFileWithGemini(description) {
+            showModal('Categorizing file with Gemini...');
+            const promptText = `Based on the following description, provide a single, concise category for the file. Examples of categories include: "Personal Photos", "Work Documents", "Creative Projects", "Software Development", "Personal Videos". Do not provide any extra text, only the category name.\n\nDescription: ${description}`;
+            const apiKey = "";
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+            const payload = {
+                contents: [
+                    {
+                        role: "user",
+                        parts: [
+                            { text: promptText }
+                        ]
+                    }
+                ]
+            };
+            
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error.message || 'API request failed.');
+                }
+                
+                const result = await response.json();
+                const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+                hideModal();
+                return text.trim() || 'Uncategorized';
+            } catch (error) {
+                hideModal();
+                showModal('Error categorizing file. ' + error.message, 'error');
+                console.error("Error categorizing file:", error);
+                return 'Uncategorized';
+            }
+        }
+
+        /**
+         * Uses Gemini API to summarize all file descriptions for a single day.
+         * @param {string} dayDescription A string containing all file descriptions for a given day.
+         * @returns {Promise<string>} A promise that resolves with the summary.
+         */
+        async function summarizeDayWithGemini(dayDescription) {
+            showModal('Summarizing day\'s work with Gemini...');
+            const promptText = `Provide a concise, single-paragraph summary of the following file descriptions. The summary should capture the main themes or activities of the day. Avoid just listing the files.\n\nFile Descriptions:\n${dayDescription}`;
+            const apiKey = "";
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+            const payload = {
+                contents: [
+                    {
+                        role: "user",
+                        parts: [
+                            { text: promptText }
+                        ]
+                    }
+                ]
+            };
+            
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error.message || 'API request failed.');
+                }
+                
+                const result = await response.json();
+                const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+                hideModal();
+                return text || 'No summary available.';
+            } catch (error) {
+                hideModal();
+                showModal('Error summarizing day. ' + error.message, 'error');
+                console.error("Error summarizing day:", error);
+                return 'Summary failed.';
+            }
+        }
+        
+        /**
+         * Gets a simple category based on the file's mime type or extension.
+         * @param {File} file The file to categorize.
+         * @returns {string} The category string.
+         */
+        function getCategory(file) {
+            if (file.type.startsWith('image/')) return 'Image';
+            if (file.type.startsWith('video/')) return 'Video';
+            if (file.type.startsWith('audio/')) return 'Audio';
+            if (file.name.endsWith('.txt') || file.name.endsWith('.md')) return 'Document';
+            if (file.name.endsWith('.mp4') || file.name.endsWith('.mov') || file.name.endsWith('.avi')) return 'Video';
+            if (file.name.endsWith('.jpg') || file.name.endsWith('.jpeg') || file.name.endsWith('.png') || file.name.endsWith('.gif')) return 'Image';
+            return 'Other';
+        }
+        
+        /**
+         * Renders the category filter buttons based on the current file data.
+         */
+        function renderCategoryFilters() {
+            const categories = new Set();
+            fileData.forEach(file => {
+                if (file.category && file.category !== 'Other') {
+                    categories.add(file.category);
+                }
+            });
+            
+            categoryButtons.innerHTML = '';
+            
+            // Add 'All' button
+            const allButton = document.createElement('button');
+            allButton.textContent = 'All';
+            allButton.className = 'filter-button active';
+            allButton.onclick = () => {
+                renderTimeline();
+                document.querySelectorAll('.filter-button').forEach(btn => btn.classList.remove('active'));
+                allButton.classList.add('active');
+            };
+            categoryButtons.appendChild(allButton);
+
+            // Add other category buttons
+            categories.forEach(cat => {
+                const button = document.createElement('button');
+                button.textContent = cat;
+                button.className = 'filter-button';
+                button.onclick = () => {
+                    renderTimeline(cat);
+                    document.querySelectorAll('.filter-button').forEach(btn => btn.classList.remove('active'));
+                    button.classList.add('active');
+                };
+                categoryButtons.appendChild(button);
+            });
+            
+            if (categories.size > 0) {
+                categoryFilterContainer.classList.remove('hidden');
+            } else {
+                categoryFilterContainer.classList.add('hidden');
+            }
+        }
+
+        /**
+         * Renders the file data in a timeline view.
+         * @param {string} [filterCategory=null] The category to filter by.
+         */
+        function renderTimeline(filterCategory = null) {
+            resultsContainer.innerHTML = '';
+            
+            // Filter files if a category is provided
+            const filteredFiles = filterCategory && filterCategory !== 'All' 
+                                 ? fileData.filter(file => file.category === filterCategory)
+                                 : fileData;
+
+            // Sort files by date, most recent first
+            const sortedFiles = [...filteredFiles].sort((a, b) => b.lastModified - a.lastModified);
+            
+            const groupedByDate = sortedFiles.reduce((acc, file) => {
+                const date = new Date(file.lastModified).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+                if (!acc[date]) {
+                    acc[date] = [];
+                }
+                acc[date].push(file);
+                return acc;
+            }, {});
+
+            for (const date in groupedByDate) {
+                const dateHeader = document.createElement('h3');
+                dateHeader.className = 'timeline-date text-xl font-bold flex justify-between items-center';
+                dateHeader.textContent = date;
+                
+                const summaryButton = document.createElement('button');
+                summaryButton.className = 'button text-sm';
+                summaryButton.textContent = 'Summarize Day\'s Work ✨';
+                summaryButton.onclick = async () => {
+                    const descriptions = groupedByDate[date].map(f => {
+                        const fileAnalysis = document.getElementById(`analysis-${f.index}`);
+                        return fileAnalysis ? `File: ${f.name}\nDescription: ${fileAnalysis.textContent.replace('Gemini Analysis: ', '')}\n` : '';
+                    }).join('');
+                    
+                    if (descriptions.trim() === '') {
+                        showModal('Please run "Deep Analyze" on some files first to create a summary.', 'error');
+                        return;
+                    }
+                    
+                    const summary = await summarizeDayWithGemini(descriptions);
+                    showModal(`Summary for ${date}:<br><br>${summary}`, 'info');
+                };
+
+                dateHeader.appendChild(summaryButton);
+                resultsContainer.appendChild(dateHeader);
+                
+                groupedByDate[date].forEach(file => {
+                    const fileItem = document.createElement('div');
+                    fileItem.className = 'timeline-item';
+                    
+                    const fileDetails = document.createElement('div');
+                    fileDetails.className = 'file-entry';
+                    
+                    const fileInfo = document.createElement('div');
+                    fileInfo.className = 'flex flex-col';
+                    fileInfo.innerHTML = `
+                        <span class="text-blue-400 font-medium">${file.name}</span>
+                        <span class="text-gray-500 text-sm mt-1">
+                            ${file.category} | ${new Date(file.lastModified).toLocaleTimeString()} | ${(file.size / 1024 / 1024).toFixed(2)} MB
+                            <span id="category-${file.index}" class="ml-2"></span>
+                        </span>
+                    `;
+                    fileDetails.appendChild(fileInfo);
+                    
+                    const actions = document.createElement('div');
+                    actions.className = 'flex items-center space-x-2';
+                    
+                    const analyzeButton = document.createElement('button');
+                    analyzeButton.textContent = 'Deep Analyze';
+                    analyzeButton.className = 'button text-sm';
+                    analyzeButton.onclick = async () => {
+                        const fileObject = directoryInput.files[file.index];
+                        if (fileObject) {
+                            const description = await analyzeFileWithGemini(fileObject);
+                            const analysisElement = document.createElement('p');
+                            analysisElement.className = 'text-gray-400 mt-2 text-sm analysis-result';
+                            analysisElement.id = `analysis-${file.index}`;
+                            const analysisSource = file.type.startsWith('image/') ? 'Gemini Visual Analysis' :
+                                                   (file.type.startsWith('text/') || file.name.endsWith('.txt') || file.name.endsWith('.md')) ? 'Gemini Content Analysis' :
+                                                   'Gemini Filename Analysis';
+                            analysisElement.innerHTML = `<span class="font-bold">${analysisSource}:</span> ${description}`;
+                            
+                            const existingAnalysis = fileItem.querySelector('.analysis-result');
+                            if (existingAnalysis) {
+                                existingAnalysis.remove();
+                            }
+                            fileItem.appendChild(analysisElement);
+                            
+                            // Show the categorize button after analysis
+                            const existingCategorizeBtn = fileItem.querySelector('.categorize-btn');
+                            if (!existingCategorizeBtn) {
+                                const categorizeBtn = document.createElement('button');
+                                categorizeBtn.textContent = 'Categorize ✨';
+                                categorizeBtn.className = 'button text-sm categorize-btn';
+                                categorizeBtn.onclick = async () => {
+                                    const category = await categorizeFileWithGemini(description);
+                                    const categorySpan = document.getElementById(`category-${file.index}`);
+                                    categorySpan.textContent = `| Category: ${category}`;
+                                    fileData[file.index].category = category; // Update fileData
+                                    renderCategoryFilters();
+                                };
+                                actions.appendChild(categorizeBtn);
+                            }
+                        }
+                    };
+                    actions.appendChild(analyzeButton);
+
+                    fileDetails.appendChild(actions);
+                    fileItem.appendChild(fileDetails);
+                    resultsContainer.appendChild(fileItem);
+                });
+            }
+        }
+
+        // Event listener for directory selection
+        directoryInput.addEventListener('change', async (event) => {
+            const files = event.target.files;
+            if (files.length === 0) {
+                statusMessage.textContent = 'No files selected. Select a directory to begin.';
+                resultsContainer.innerHTML = '';
+                fileData = [];
+                return;
+            }
+
+            statusMessage.textContent = 'Analyzing files...';
+            fileData = [];
+
+            // Read and process each file
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                fileData.push({
+                    index: i,
+                    name: file.name,
+                    size: file.size,
+                    type: file.type,
+                    lastModified: file.lastModified,
+                    category: getCategory(file)
+                });
+            }
+            
+            statusMessage.textContent = `Found ${files.length} files.`;
+            renderTimeline();
+            renderCategoryFilters();
+        });
+    });
+</script>
+
+</body>
+</html>
